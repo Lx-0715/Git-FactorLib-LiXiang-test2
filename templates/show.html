@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Dynamic Dropdowns</title>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.datatables.net/1.10.24/js/jquery.dataTables.min.js"></script>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+    <canvas id="lineChart" width="400" height="400"></canvas>
+    <style>
+        #container {
+            display: flex;
+        }
+        #dropdown-container {
+            width: 50%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            gap: 20px;
+            border-right: 1px solid black;
+            padding: 20px;
+        }
+        #dropdown-container .dropdown-wrapper {
+            width: 80%;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        #dropdown-container label {
+            font-weight: bold;
+            margin-right: 10px;
+        }
+        #dropdown-container select {
+            flex: 1;
+            height: 40px;
+            font-size: 18px;
+            margin: 10px 0;
+        }
+        #data-container {
+            width: 50%;
+            text-align: center;
+            border-left: 1px solid black;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        #data-container h1 {
+            margin-bottom: 20px;
+        }
+        #data-container .dropdown-wrapper {
+            width: 80%;
+            display: flex;
+            flex-direction: row;
+            justify-content: space-between;
+            align-items: center;
+            margin: 10px 0;
+        }
+        #data-container label {
+            font-weight: bold;
+            margin-right: 10px;
+        }
+        #data-container select {
+            width: 70%;
+            height: 40px;
+            font-size: 18px;
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <div id="dropdown-container"></div>
+        <div id="data-container">
+            <h1>绩效展示</h1>
+            <div id="chart-container"></div>
+                {{ div | safe }}
+        </div>
+    </div>
+    <h1>配置信息:</h1>
+    <ul>
+        <li>变频: {{ FREQUENCY_INTERVAL }}</li>
+        <li>变频规则: {{ freq_position }}</li>
+        <li>标准组: {{ benchmark }}</li>
+        <li>分组数量: {{ subportfolio_num }}</li>
+        <li>滞后期: {{ IC_lag_n }}</li>
+        <li>数据频率: {{ period }}</li>
+        <li>窗长: {{ winlen }}</li>
+    </ul>
+
+<script>
+
+function handleDropdownChange(selectedValue, level, path, shouldMoveToRight) {
+    var newPath = path ? path + '/' + selectedValue : selectedValue;
+    createDropdown(level + 1, newPath, shouldMoveToRight);
+    getDataAndDisplay(newPath);
+}
+
+       function getRandomColor() {
+                var letters = '0123456789ABCDEF';
+                var color = '#';
+                for (var i = 0; i < 6; i++) {
+                    color += letters[Math.floor(Math.random() * 16)];
+                }
+                return color;
+                }
+
+function getDataAndDisplay(path) {
+    $.getJSON('/get_data/' + path, function(response) {
+        console.log("111",response.option_type,response.results);
+        generateChart(response.option_type, response.results);
+    });
+}
+
+function createDropdown(level, path, shouldMoveToRight = false) {
+    var dropdownId = 'dropdown' + level;
+    $('#' + dropdownId).parent().nextAll().remove(); // 删除所有后续的下拉框
+    $('#' + dropdownId).parent().remove(); // 删除当前下拉框
+    $.getJSON('/get_keys/' + level + (Array.isArray(path) ? '/' + path.join('/') : path ? '/' + path : ''), function(response) {
+        var data = response.keys;
+        console.log(data);
+        if (Array.isArray(data) && data.length > 0) {
+            var dropdownWrapper = $('<div/>').addClass('dropdown-wrapper');
+            var label;
+            var dropdown = $('<select/>').attr('id', dropdownId);
+            //dropdown.append('<option value="all">all</option>'); // 将 "all" 选项添加到下拉框
+            $.each(data, function(index, value) {
+                dropdown.append('<option value="' + value + '">' + value + '</option>');
+            });
+            var containerId = 'dropdown-container';
+            if (shouldMoveToRight || data.some(value => value.includes('portfolio_tb'))) {
+                containerId = 'data-container';
+                label = $('<label/>').text((level + 1 - $('#dropdown-container .dropdown-wrapper').length) + '级绩效指标');
+                shouldMoveToRight = true;
+            } else {
+                label = $('<label/>').text('层级' + (level + 1));
+            }
+            dropdownWrapper.append(label).append(dropdown);
+            $('#' + containerId).append(dropdownWrapper);
+            dropdown.change(function() {
+                var selectedValue = $(this).val();
+                handleDropdownChange(selectedValue, level, path, shouldMoveToRight);
+            });
+            dropdown.trigger('change'); // 触发 change 事件以使默认选项可点击
+        } else if (!Array.isArray(data)) {
+            $('#data').html(JSON.stringify(data));
+        }
+    });
+    return shouldMoveToRight;
+}
+//移除部分组件
+function removeElementsById() {
+    // Remove elements if they exist
+    var elementIds = ["myTable", "columnName", "minValue", "maxValue", "filterButton", "label1", "label2", "label3"];
+    for (var i = 0; i < elementIds.length; i++) {
+        var element = document.getElementById(elementIds[i]);
+        if (element) {
+            console.log(111,element.innerHTML)
+            element.innerHTML = "";
+            console.log(222,element.innerHTML)
+            element.parentNode.removeChild(element);
+        }
+    }
+}
+
+
+function generateChart(optionType, results) {
+    var div = document.getElementById('heatmap');
+    var canvas = document.getElementById('lineChart');  // 请将 'yourCanvasId' 替换为你的 canvas 元素的 id
+    // 如果 div 元素存在，就删除它
+    if (div) {
+            document.body.removeChild(div);
+        while (div.firstChild) {
+            div.removeChild(div.firstChild);
+        }
+    }
+    // 如果 canvas 元素存在，就删除它
+    if (canvas) {
+        document.body.removeChild(canvas);
+    }
+    removeElementsById();
+    var tabs = document.getElementById('tabsDiv');
+    if (tabs) {
+        tabs.innerHTML = '';
+    }
+    var tabs = document.getElementById('tableDiv');
+    if (tabs) {
+        console.log("清除")
+        tabs.innerHTML = '';
+    }
+    var paginationDiv = document.getElementById("paginationDiv");
+    if (paginationDiv) {
+        document.body.removeChild(paginationDiv);
+    }
+    switch (optionType) {
+        case 'heatmap':
+            var length = results.length;
+            var div = document.getElementById('heatmap');
+            if (!div) {
+                div = document.createElement('div');
+                div.id = 'heatmap';
+                div.style.width = '50%';
+                div.style.height = '50%';
+                div.style.margin = '0 auto';
+                document.body.appendChild(div);
+            }
+
+            // Create a tab container
+            var tabContainer = document.createElement('div');
+            div.appendChild(tabContainer);
+
+            for (var k = 0; k < length; k++) {
+                var z = results[k].map(function(result) {
+                    return result.values;
+                });
+                var text = z.map(function(result) {
+                    return result.map(function(value) {
+                        return value.toString();
+                    });
+                });
+                var trace = {
+                    z: z,
+                    x: results[k][0].x,
+                    y: results[k][0].y,
+                    type: 'heatmap',
+                    name: results[k][0].title,
+                };
+                var annotations = [];
+                for (var i = 0; i < z.length; i++) {
+                    for (var j = 0; j < z[i].length; j++) {
+                        annotations.push({
+                            x: j,
+                            y: i,
+                            text: parseFloat(text[i][j]).toFixed(3),
+                            font: {
+                                family: 'Arial',
+                                size: 12,
+                                color: 'white'
+                            },
+                            showarrow: false
+                        });
+                    }
+                }
+                var layout = {
+                    yaxis: {
+                        type: 'category'
+                    },
+                    annotations: annotations
+                };
+
+                var tab = document.createElement('button');
+                var contentDiv = document.createElement('div');
+                contentDiv.className = 'content';  // Add a class name to the content div
+                (function(contentDiv, trace, layout) {
+                    // Set the tab's name and onclick event
+                    tab.textContent = trace.name;
+                    tab.onclick = function() {
+                        // Hide all content divs
+                        var contentDivs = div.getElementsByClassName('content');  // Get all content divs by class name
+                        for (var i = 0; i < contentDivs.length; i++) {
+                            contentDivs[i].style.display = 'none';
+                        }
+                        // Show the current content div
+                        contentDiv.style.display = 'block';
+
+                        // Generate the heatmap in the content div
+                        window.myPlot = Plotly.newPlot(contentDiv, [trace], layout);
+                    };
+                })(contentDiv, trace, layout);
+
+                // Add the tab and the content div to the tab container
+                tabContainer.appendChild(tab);
+                div.appendChild(contentDiv);
+                }
+            break;
+        case 'linechart':
+            var canvas = document.createElement('canvas');
+            canvas.id = 'lineChart';
+            // 设置canvas的属性
+            canvas.setAttribute('width', '400');  // 设置宽度为800
+            canvas.setAttribute('height', '200');  // 设置高度为600
+            document.body.appendChild(canvas);  // 将canvas添加到body元素的末尾
+            var ctx = canvas.getContext('2d');
+            console.log("results",results)
+            var datasets = results.map(function(dataset, index) {
+                    var type = 'line';
+                    //if (dataset.title === "IC" || form.action.endsWith('/IC_Frequency') ) {
+                    //    type = 'bar';
+                    //}
+                    return {
+                        type: type,
+                        label: dataset.title,
+                        data: dataset.values,
+                        fill: false,
+                        borderColor: getRandomColor(),
+                        backgroundColor: getRandomColor(),
+                        tension: 0.1
+                    };
+                });
+                console.log("接收到的数据：", datasets);
+                if (window.myChart) {
+                    window.myChart.destroy();
+                }
+                window.myChart = new Chart(ctx, {
+                    data: {
+                        labels: results[0].labels,  // 假设所有数据集使用相同的标签
+                        datasets: datasets
+                    }
+                });
+            break;
+        case 'table':
+            var paginationDiv = document.getElementById("paginationDiv");
+            if (paginationDiv) {
+                document.body.removeChild(paginationDiv);
+            }
+            var tabsDiv = document.getElementById('tabsDiv');
+            if (!tabsDiv) {
+                tabsDiv = document.createElement("div");
+                tabsDiv.id = "tabsDiv";
+                document.body.appendChild(tabsDiv);
+            }
+            var tableDiv = document.getElementById('tableDiv');
+            if (!tableDiv) {
+                tableDiv = document.createElement("div");
+                tableDiv.id = "tableDiv";
+                document.body.appendChild(tableDiv);
+            }
+            // Create a tab for each table
+            for (var key in results) {
+                var tab = document.createElement("button");
+                tab.innerHTML = key;
+                tab.addEventListener("click", function() {
+                    //生成表格
+                    generateTable(this.innerHTML, JSON.parse(results[this.innerHTML]),1);
+                });
+                tabsDiv.appendChild(tab);
+            }
+                tableDiv.innerHTML = '';
+                // Generate the first table when the page loads
+            if (Object.keys(results).length > 0) {
+                generateTable(Object.keys(results)[0], JSON.parse(results[Object.keys(results)[0]]),1);
+            }
+        default:
+            console.error('Unknown option type: ' + optionType);
+            }
+        }
+
+//分页函数
+function generatePaginationButtons(totalPages, tableName, data, currentPage) {
+        // Check if the pagination buttons already exist
+        var paginationDiv = document.getElementById("paginationDiv");
+        if (paginationDiv) {
+            document.body.removeChild(paginationDiv);
+        }
+
+        var paginationDiv = document.createElement("div");
+        paginationDiv.id = "paginationDiv";
+        document.body.appendChild(paginationDiv);
+
+        // Create a hidden input to store the current page
+        var currentPageInput = document.createElement("input");
+        currentPageInput.type = "hidden";
+        currentPageInput.id = "currentPage";
+        currentPageInput.value = currentPage;
+        paginationDiv.appendChild(currentPageInput);
+
+        // Create previous page button
+        if (currentPage > 1) {
+            var prevButton = document.createElement("button");
+            prevButton.innerHTML = "Previous";
+            prevButton.addEventListener("click", function() {
+                var currentPage = parseInt(document.getElementById("currentPage").value);
+                generateTable(tableName, data, currentPage - 1);
+            });
+            paginationDiv.appendChild(prevButton);
+        }
+
+        // Create page number buttons
+        for (let i = 1; i <= totalPages; i++) {
+            let pageButton = document.createElement("button");
+            pageButton.innerHTML = i;
+            pageButton.addEventListener("click", function() {
+                generateTable(tableName, data, i);
+            });
+            paginationDiv.appendChild(pageButton);
+        }
+
+        // Create next page button
+        if (currentPage < totalPages) {
+            var nextButton = document.createElement("button");
+            nextButton.innerHTML = "Next";
+            nextButton.addEventListener("click", function() {
+                var currentPage = parseInt(document.getElementById("currentPage").value);
+                generateTable(tableName, data, currentPage + 1);
+            });
+            paginationDiv.appendChild(nextButton);
+        }
+}
+//生成表格
+function generateTable(tableName,data,currentPage) {
+        console.log('Current page:', currentPage);
+        removeElementsById();
+        document.getElementById('tableDiv').innerHTML = '';  // Clear the table div
+        var table = document.createElement("table");
+        table.id = tableName;
+        table.style.borderCollapse = "collapse";
+        document.getElementById('tableDiv').appendChild(table);
+         var header = table.createTHead();
+            var row = header.insertRow(0);
+            var firstCell = document.createElement("th");
+            firstCell.innerHTML = ""; // Empty cell for row names
+            firstCell.style.border = "1px solid black";
+            row.appendChild(firstCell);
+            for (var i = 0; i < data.columns.length; i++) {
+                var cell = row.insertCell(i+1);
+                cell.innerHTML = data.columns[i];
+                cell.style.border = "1px solid black";
+            }
+        var rowsPerPage = 50;
+        var totalPages = Math.ceil(data.data.length / rowsPerPage);
+        // Insert the data
+        var body = table.createTBody();
+        for (var i = (currentPage - 1) * rowsPerPage; i < Math.min(currentPage * rowsPerPage, data.data.length); i++) {
+            var row = body.insertRow(i - (currentPage - 1) * rowsPerPage);
+            var rowNameCell = row.insertCell(0);
+            rowNameCell.innerHTML = data.index[i];  // Insert the row name
+            rowNameCell.style.border = "1px solid black";
+            for (var j = 0; j < data.data[i].length; j++) {
+                var cell = row.insertCell(j+1);
+                cell.innerHTML = data.data[i][j];
+                cell.style.border = "1px solid black";
+            }
+        }
+        generatePaginationButtons(totalPages, tableName, data, currentPage);
+        }
+
+
+$(document).ready(function() {
+    createDropdown(0, '', false);
+});
+
+</script>
+</body>
+</html>

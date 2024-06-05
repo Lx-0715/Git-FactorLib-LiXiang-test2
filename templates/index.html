@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Dynamic Dropdowns</title>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <script src="https://cdn.datatables.net/1.10.24/js/jquery.dataTables.min.js"></script>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            gap: 20px;
+            border-right: 1px solid black;
+            padding: 20px;
+        }
+        .common-style {
+        width: 80%;  /* Set width */
+        height: 40px;  /* Set height */
+        font-size: 18px;  /* Set font size */
+        margin-top: 10px;
+        display: block;  /* Set as block-level element */
+        margin-left: auto;  /* Set left margin to auto */
+        margin-right: auto;  /* Set right margin to auto */
+        margin-bottom: 20px;
+    }
+
+    /* Apply the common style to select elements */
+    select {
+        font-weight: bold;  /* Set font weight to bold */
+    }
+
+    /* Apply the common style to label elements */
+     label {
+        font-weight: bold;  /* 加粗 */
+        margin-right: 10px;  /* 右边距 */
+    }
+
+     .dropdown-wrapper {
+        display: flex;  /* 使用 Flex 布局 */
+        align-items: center;  /* 垂直居中 */
+        justify-content: center;  /* 水平居中 */
+    }
+
+     button {
+        background-color: #4CAF50;  /* Set background color */
+        color: white;  /* Set text color */
+        border: none;  /* Remove border */
+        cursor: pointer;  /* Change cursor to pointer on hover */
+    }
+     button:hover {
+        background-color: #45a049;
+    }
+.inline-element {
+    display: inline-block;
+}
+    </style>
+</head>
+<body>
+     <div id="container">
+        <div id="dropdown-container">
+            <label for="performance-dropdown" class="common-style">绩效包</label>
+            <select id="performance-dropdown" class="common-style">
+                <option value="ffn_performance">ffn_performance</option>
+                <option value="empyrical_performance">empyrical_performance</option>
+                <option value="empyrical_performance_rolling">empyrical_performance_rolling</option>
+                <option value="qs_performance">qs_performance</option>
+                <option value="pyf_performance">pyf_performance</option>
+                <option value="pyf_performance_rolling">pyf_performance_rolling</option>
+            </select>
+        </div>
+    </div>
+
+
+<script>
+
+function handleDropdownChange(selectedValue, level, path, shouldMoveToRight) {
+    var newPath = path ? path + '/' + selectedValue : selectedValue;
+    console.log('New path:', newPath);  // 打印 newPath 的值
+    createDropdown(level + 1, newPath, shouldMoveToRight);
+    getDataAndDisplay(newPath);
+}
+function getDataAndDisplay(path) {
+    $.getJSON('/get_data/' + path, function(response) {
+        console.log("111",response.option_type,response.results);
+        generate_filter(response.option_type, response.results);
+    });
+}
+
+function createDropdown(level, path, shouldMoveToRight = false) {
+    var dropdownId = 'dropdown' + level;
+    $('#' + dropdownId).parent().nextAll().remove(); // 删除所有后续的下拉框
+    $('#' + dropdownId).parent().remove(); // 删除当前下拉框
+    $.getJSON('/get_keys/' + level + (Array.isArray(path) ? '/' + path.join('/') : path ? '/' + path : ''), function(response) {
+        var data = response.keys;
+        console.log(data);
+        if (Array.isArray(data) && data.length > 0) {
+            var dropdownWrapper = $('<div/>').addClass('dropdown-wrapper common-style'); // 添加 common-style 类
+            var label;
+            var label = $('<label/>').text('时间').addClass('common-style inline-element');
+            var dropdown = $('<select/>').attr('id', dropdownId).addClass('common-style inline-element'); // 添加 common-style 类
+            $.each(data, function(index, value) {
+                if (value !== "all") {  // 如果 value 不等于 "all"，则添加 <option> 元素
+                    dropdown.append('<option value="' + value + '">' + value + '</option>');
+                }
+            });
+            var containerId = 'dropdown-container';
+            dropdownWrapper.append(label).append(dropdown);
+            $('#' + containerId).append(dropdownWrapper);
+            dropdown.change(function() {
+                var selectedValue = $(this).val();
+                handleDropdownChange(selectedValue, level, path, shouldMoveToRight);
+            });
+            dropdown.trigger('change'); // 触发 change 事件以使默认选项可点击
+        } else if (!Array.isArray(data)) {
+            $('#data').html(JSON.stringify(data));
+        }
+    });
+    return shouldMoveToRight;
+}
+
+function getInitialPathAndCreateDropdown() {
+    $.ajax({
+        type: 'POST',
+        url: '/get_initial_path',
+        contentType: 'application/json',
+        data: JSON.stringify({
+            dropdownValue: $('#performance-dropdown').val(),
+        }),
+        success: function(response) {
+            var initialPath = response.initialPath;
+            var pathLevels = response.pathLevels; // 获取路径的层级数量
+            console.log('Initial Path:', initialPath);
+            console.log('Path Levels:', pathLevels);
+            createDropdown(pathLevels, initialPath, false);
+        },
+        error: function(xhr, status, error) {
+            console.error('Error:', error);
+        }
+    });
+}
+
+function generate_filter(optionType, results,tableName) {
+    var elementIds = ["myTable", "columnName", "minValue", "maxValue", "filterButton", "label1", "label2", "label3"];
+    for (var i = 0; i < elementIds.length; i++) {
+        var element = document.getElementById(elementIds[i]);
+        if (element) {
+            console.log(111,element.innerHTML)
+            element.innerHTML = "";
+            console.log(222,element.innerHTML)
+            element.parentNode.removeChild(element);
+        }
+    }
+    for (var key in results) {
+        //生成表格
+        var data = JSON.parse(results[key]);
+        var label1 = document.createElement("label");
+        label1.id = "label1";
+        label1.innerHTML = "筛选指标名称: ";
+        label1.classList.add("common-style");
+        document.body.appendChild(label1);
+        var select = document.createElement("select");
+        select.id = "columnName";
+        select.classList.add("common-style");
+        document.body.appendChild(select);
+        for (var i = 0; i < data.columns.length; i++) {
+            var option = document.createElement("option");
+            option.value = data.columns[i];
+            option.text = data.columns[i];
+            select.appendChild(option);
+        }
+        var label2 = document.createElement("label");
+        label2.id = "label2";
+        label2.innerHTML = "最小值: ";
+        label2.classList.add("common-style");
+        document.body.appendChild(label2);
+        var input2 = document.createElement("input");
+        input2.type = "text";
+        input2.id = "minValue";
+        input2.classList.add("common-style");
+        document.body.appendChild(input2);
+        var label3 = document.createElement("label");
+        label3.id = "label3";
+        label3.classList.add("common-style");
+        label3.innerHTML = "最大值: ";
+        document.body.appendChild(label3);
+        var input3 = document.createElement("input");
+        input3.type = "text";
+        input3.id = "maxValue";
+        input3.classList.add("common-style");
+        document.body.appendChild(input3);
+        var filterButton = document.createElement("button");
+        filterButton.innerHTML = "筛选";
+        filterButton.id = "filterButton";
+        filterButton.classList.add("common-style");
+        document.body.appendChild(filterButton);
+        break;
+    }
+    filterButton.addEventListener('click', function() {
+        // 调用 filterTable 函数
+        var result = filterTable(results);
+        // 使用 Fetch API 将结果发送到后端
+        fetch('/filter_result', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(result),
+        })
+        .then(response => response.json())
+        .then(data => {
+        console.log(data);
+        // 跳转到另一个页面
+        window.location.href = '/show.html';
+         });
+    });
+}
+
+function filterTable(df) {
+    var columnName = document.getElementById('columnName').value;
+    var minValue = document.getElementById('minValue').value;
+    var maxValue = document.getElementById('maxValue').value;
+    var resultKeys = [];
+    console.log(typeof minValue);
+    // 构造要发送到后端的对象
+    for (var key in df) {
+        var data = JSON.parse(df[key]);
+        console.log(data[columnName]);
+        var columnIndex = data.columns.indexOf(columnName);
+        if (columnIndex == -1) {
+            console.error("Column not found: " + columnName);
+            continue;
+        }
+        for (var i = 0; i < data.data.length; i++) {
+            //移除 "%" 字符，然后使用 Number() 函数来将剩余的字符串转换为数字
+            var dataValue = data.data[i][columnIndex];
+           if (dataValue !== undefined && dataValue !== null && dataValue !== "") {
+            if (dataValue.includes('%')) {
+        // 如果含有百分号，则移除百分号并转换为数字
+                value = Number(dataValue.replace('%', '')) / 100;
+            } else {
+                // 如果不含有百分号，则直接转换为数字
+                value = Number(dataValue);
+            }
+
+            // 判断 minValue 和 maxValue 是否存在并且非空
+            if ((minValue !== "" && !isNaN(minValue)) && (maxValue !== "" && !isNaN(maxValue))) {
+                // 如果 minValue 和 maxValue 都存在且非空，进行比较
+                if (value >= Number(minValue) && value <= Number(maxValue)) {
+                    resultKeys.push(key);
+                    break;
+                }
+                    } else if (minValue !== "" && !isNaN(minValue)) {
+                        // 如果只有 minValue 存在且非空，则只进行最小值比较
+                        if (value >= Number(minValue)) {
+                            resultKeys.push(key);
+                            break;
+                        }
+                    } else if (maxValue !== "" && !isNaN(maxValue)) {
+                        // 如果只有 maxValue 存在且非空，则只进行最大值比较
+                        if (value <= Number(maxValue)) {
+                            resultKeys.push(key);
+                            break;
+                        }
+                    } else {
+                        // 如果都不存在或为空，则直接将该 key 添加到 resultKeys 中
+                        resultKeys.push(key);
+                        break;
+                    }
+                } else {
+                    console.log("data.data[i][columnIndex] 为空值");
+                }
+        }
+    }
+    console.log("resultkeys",resultKeys)
+    return {
+        columnName: columnName,
+        minValue: minValue,
+        maxValue: maxValue,
+        resultKeys: resultKeys
+    };
+}
+
+$(document).ready(function() {
+    getInitialPathAndCreateDropdown(); // 调用新添加的函数以获取初始路径并生成下拉菜单
+});
+
+
+
+</script>
+</body>
+</html>
